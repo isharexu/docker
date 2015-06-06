@@ -530,6 +530,9 @@ loop:
 
 		path := filepath.Join(dest, hdr.Name)
 		rel, err := filepath.Rel(dest, path)
+
+		fmt.Println("JJH ARCHIVE: path", path)
+		fmt.Println("JJH ARCHIVE: rel", rel)
 		if err != nil {
 			return err
 		}
@@ -542,7 +545,9 @@ loop:
 		// the layer is also a directory. Then we want to merge them (i.e.
 		// just apply the metadata from the layer).
 		if fi, err := os.Lstat(path); err == nil {
+			fmt.Println("JJH ARCHIVE: IsDir()", fi.IsDir)
 			if fi.IsDir() && hdr.Name == "." {
+				fmt.Println("JJH ARCHIVE: Continuing")
 				continue
 			}
 			if !(fi.IsDir() && hdr.Typeflag == tar.TypeDir) {

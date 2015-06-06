@@ -96,6 +96,8 @@ func UnpackLayer(dest string, layer ArchiveReader) (size int64, err error) {
 		}
 		path := filepath.Join(dest, hdr.Name)
 		rel, err := filepath.Rel(dest, path)
+		fmt.Println("JJH DIFF: path ", path)
+		fmt.Println("JJH DIFF rel", rel)
 		if err != nil {
 			return 0, err
 		}
