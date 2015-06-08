@@ -12,6 +12,7 @@ import (
 
 	log "github.com/Sirupsen/logrus"
 	"github.com/docker/docker/pkg/reexec"
+	"github.com/docker/libnetwork/types"
 	"github.com/vishvananda/netlink"
 	"github.com/vishvananda/netns"
 )
@@ -24,6 +25,7 @@ var (
 	gpmLock          sync.Mutex
 	gpmWg            sync.WaitGroup
 	gpmCleanupPeriod = 60 * time.Second
+	gpmChan          = make(chan chan struct{})
 )
 
 // The networkNamespace type is the linux implementation of the Sandbox
@@ -55,7 +57,18 @@ func removeUnusedPaths() {
 	period := gpmCleanupPeriod
 	gpmLock.Unlock()
 
-	for range time.Tick(period) {
+	ticker := time.NewTicker(period)
+	for {
+		var (
+			gc   chan struct{}
+			gcOk bool
+		)
+
+		select {
+		case <-ticker.C:
+		case gc, gcOk = <-gpmChan:
+		}
+
 		gpmLock.Lock()
 		pathList := make([]string, 0, len(garbagePathMap))
 		for path := range garbagePathMap {
@@ -70,6 +83,9 @@ func removeUnusedPaths() {
 		}
 
 		gpmWg.Done()
+		if gcOk {
+			close(gc)
+		}
 	}
 }
 
@@ -83,6 +99,18 @@ func removeFromGarbagePaths(path string) {
 	gpmLock.Lock()
 	delete(garbagePathMap, path)
 	gpmLock.Unlock()
+}
+
+// GC triggers garbage collection of namespace path right away
+// and waits for it.
+func GC() {
+	waitGC := make(chan struct{})
+
+	// Trigger GC now
+	gpmChan <- waitGC
+
+	// wait for gc to complete
+	<-waitGC
 }
 
 // GenerateKey generates a sandbox key based on the passed
@@ -234,6 +262,15 @@ func (n *networkNamespace) RemoveInterface(i *Interface) error {
 		return err
 	}
 
+	n.Lock()
+	for index, intf := range n.sinfo.Interfaces {
+		if intf == i {
+			n.sinfo.Interfaces = append(n.sinfo.Interfaces[:index], n.sinfo.Interfaces[index+1:]...)
+			break
+		}
+	}
+	n.Unlock()
+
 	return nil
 }
 
@@ -298,32 +335,109 @@ func (n *networkNamespace) AddInterface(i *Interface) error {
 }
 
 func (n *networkNamespace) SetGateway(gw net.IP) error {
+	// Silently return if the gateway is empty
 	if len(gw) == 0 {
 		return nil
 	}
 
-	err := programGateway(n.path, gw)
+	err := programGateway(n.path, gw, true)
 	if err == nil {
+		n.Lock()
 		n.sinfo.Gateway = gw
+		n.Unlock()
+	}
+
+	return err
+}
+
+func (n *networkNamespace) UnsetGateway() error {
+	n.Lock()
+	gw := n.sinfo.Gateway
+	n.Unlock()
+
+	// Silently return if the gateway is empty
+	if len(gw) == 0 {
+		return nil
+	}
+
+	err := programGateway(n.path, gw, false)
+	if err == nil {
+		n.Lock()
+		n.sinfo.Gateway = net.IP{}
+		n.Unlock()
 	}
 
 	return err
 }
 
 func (n *networkNamespace) SetGatewayIPv6(gw net.IP) error {
+	// Silently return if the gateway is empty
 	if len(gw) == 0 {
 		return nil
 	}
 
-	err := programGateway(n.path, gw)
+	err := programGateway(n.path, gw, true)
 	if err == nil {
+		n.Lock()
 		n.sinfo.GatewayIPv6 = gw
+		n.Unlock()
 	}
 
 	return err
 }
 
+func (n *networkNamespace) UnsetGatewayIPv6() error {
+	n.Lock()
+	gw := n.sinfo.GatewayIPv6
+	n.Unlock()
+
+	// Silently return if the gateway is empty
+	if len(gw) == 0 {
+		return nil
+	}
+
+	err := programGateway(n.path, gw, false)
+	if err == nil {
+		n.Lock()
+		n.sinfo.GatewayIPv6 = net.IP{}
+		n.Unlock()
+	}
+
+	return err
+}
+
+func (n *networkNamespace) AddStaticRoute(r *types.StaticRoute) error {
+	err := programRoute(n.path, r.Destination, r.NextHop)
+	if err == nil {
+		n.Lock()
+		n.sinfo.StaticRoutes = append(n.sinfo.StaticRoutes, r)
+		n.Unlock()
+	}
+	return err
+}
+
+func (n *networkNamespace) RemoveStaticRoute(r *types.StaticRoute) error {
+	err := removeRoute(n.path, r.Destination, r.NextHop)
+	if err == nil {
+		n.Lock()
+		lastIndex := len(n.sinfo.StaticRoutes) - 1
+		for i, v := range n.sinfo.StaticRoutes {
+			if v == r {
+				// Overwrite the route we're removing with the last element
+				n.sinfo.StaticRoutes[i] = n.sinfo.StaticRoutes[lastIndex]
+				// Shorten the slice to trim the extra element
+				n.sinfo.StaticRoutes = n.sinfo.StaticRoutes[:lastIndex]
+				break
+			}
+		}
+		n.Unlock()
+	}
+	return err
+}
+
 func (n *networkNamespace) Interfaces() []*Interface {
+	n.Lock()
+	defer n.Unlock()
 	return n.sinfo.Interfaces
 }
 
