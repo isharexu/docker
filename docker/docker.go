@@ -11,6 +11,7 @@ import (
 	"github.com/docker/docker/api/client"
 	"github.com/docker/docker/autogen/dockerversion"
 	"github.com/docker/docker/opts"
+	"github.com/docker/docker/pkg/assert"
 	flag "github.com/docker/docker/pkg/mflag"
 	"github.com/docker/docker/pkg/reexec"
 	"github.com/docker/docker/pkg/term"
@@ -57,6 +58,7 @@ func main() {
 	if *flDebug {
 		os.Setenv("DEBUG", "1")
 		setLogLevel(logrus.DebugLevel)
+		assert.SetPanic(true)
 	}
 
 	if len(flHosts) == 0 {

@@ -26,6 +26,7 @@ import (
 	"github.com/docker/docker/graph"
 	imagepkg "github.com/docker/docker/image"
 	"github.com/docker/docker/pkg/archive"
+	"github.com/docker/docker/pkg/assert"
 	"github.com/docker/docker/pkg/chrootarchive"
 	"github.com/docker/docker/pkg/httputils"
 	"github.com/docker/docker/pkg/ioutils"
@@ -372,11 +373,20 @@ func calcCopyInfo(b *Builder, cmdName string, cInfos *[]*copyInfo, origPath stri
 		ci.origPath = filepath.Join(filepath.Base(tmpDirName), filepath.Base(tmpFileName))
 		logrus.Debugln("internals after: ci.origPath", ci.origPath)
 		logrus.Debugln("internals: ci.destPath", ci.destPath)
+
+		// Assert that ci.destPath is in Linux format, so contains no back-slashes
+		assert.Assert(!strings.Contains(ci.destPath, "\\"), "internals.go::calcCopyPath() ci.destPath contains a \\ - "+ci.destPath)
+
+		// Assert that ci.origPath is in Windows format, so contains no forward slashes
+		assert.Assert(!strings.Contains(ci.origPath, "/"), "internals.go::calcCopyPath() ci.origPath contains a / - "+ci.origPath)
+
 		logrus.Debugln("internals origPath=", origPath)
 
 		// If the destination is a directory, figure out the filename.
-		// Destination paths here are OS specific
-		if strings.HasSuffix(ci.destPath, string(os.PathSeparator)) {
+		// Note ci.destPath here will be in Linux format.
+		if strings.HasSuffix(ci.destPath, "/") {
+
+			// Note that u is a URL, so should use /
 			u, err := url.Parse(origPath)
 			logrus.Debugln("internals u=", u)
 			if err != nil {
