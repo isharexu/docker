@@ -42,11 +42,7 @@ func (d *Driver) Cleanup() error {
 
 func (d *Driver) Create(id, parent string) error {
 	dir := d.dir(id)
-<<<<<<< HEAD
-	if err := system.MkdirAll(path.Dir(dir), 0700); err != nil {
-=======
 	if err := system.MkdirAll(filepath.Dir(dir), 0700); err != nil {
->>>>>>> a9c38a4... Windows: Allow VFS through build tag
 		return err
 	}
 	if err := os.Mkdir(dir, 0755); err != nil {
